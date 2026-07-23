@@ -414,6 +414,9 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
   // Response: { product, count, rows: [ {timestamp, enterprise, qcUser,
   //             editUser, skuId, imageId, issue, submitIssue, loginUser}, ... ] }
   const API_BASE = '/api/qc';
+  // How many days of history to pull from BigQuery. Keeps payloads small/fast.
+  // Raise if you need older data in the trends; 'all' loads everything.
+  const LOAD_DAYS = 120;
   const PAGE_SIZE = 50;
 
   // ── STATE ────────────────────────────────────────────────────────────
@@ -454,7 +457,7 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
     if (pg) pg.style.display = 'none';
 
     try {
-      const res = await fetch(`${API_BASE}?product=${encodeURIComponent(currentProduct)}`);
+      const res = await fetch(`${API_BASE}?product=${encodeURIComponent(currentProduct)}&days=${LOAD_DAYS}`);
       if (!res.ok) {
         let detail = `HTTP ${res.status}`;
         try { const j = await res.json(); if (j && j.error) detail = j.error; } catch (_) {}
