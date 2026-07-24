@@ -119,7 +119,12 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
 
 <header>
   <div class="logo">
-    <img src="images (1).png" alt="Spyne Logo" style="width:48px;height:48px;object-fit:contain;"/>
+    <svg width="48" height="48" viewBox="0 0 48 48" fill="none" xmlns="http://www.w3.org/2000/svg" style="flex-shrink:0;">
+      <circle cx="14" cy="14" r="7" fill="#6c63ff"/>
+      <circle cx="34" cy="14" r="7" fill="#00d4aa"/>
+      <circle cx="14" cy="34" r="7" fill="#f59e0b"/>
+      <circle cx="34" cy="34" r="7" fill="#ef4444"/>
+    </svg>
     <div>
       <div style="font-weight:700;font-size:1rem;letter-spacing:-.02em;line-height:1.1;">Spyne</div>
       <div style="font-size:0.68rem;color:var(--muted);font-weight:400;letter-spacing:.02em;">Spot Qc Dashboard</div>
@@ -149,6 +154,17 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
 </header>
 
 <main>
+  <!-- LOAD PROGRESS -->
+  <div id="loadProgress" style="display:none;margin-bottom:18px;">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+      <span id="loadProgressLabel" style="font-size:0.78rem;color:var(--muted);font-family:var(--mono);">Loading data from BigQuery…</span>
+      <span id="loadProgressPct" style="font-size:0.78rem;color:var(--accent);font-family:var(--mono);font-weight:600;">0%</span>
+    </div>
+    <div style="height:8px;background:var(--surface2);border:1px solid var(--border);border-radius:20px;overflow:hidden;">
+      <div id="loadProgressBar" style="height:100%;width:0%;background:linear-gradient(90deg,var(--accent),var(--accent2));border-radius:20px;transition:width .2s ease;"></div>
+    </div>
+  </div>
+
   <!-- FILTERS -->
   <div class="filters">
     <div class="filter-group" style="min-width:130px;flex:0 0 140px;">
@@ -440,6 +456,25 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
     if (tc) tc.innerHTML = html;
   }
 
+  // ── LOAD PROGRESS BAR ──────────────────────────────────────────────
+  function showProgress(label) {
+    const p = document.getElementById('loadProgress');
+    if (p) p.style.display = 'block';
+    setProgress(0, label || 'Loading data from BigQuery…');
+  }
+  function setProgress(pct, label) {
+    const bar = document.getElementById('loadProgressBar');
+    const txt = document.getElementById('loadProgressPct');
+    const lbl = document.getElementById('loadProgressLabel');
+    if (bar) bar.style.width = Math.max(0, Math.min(100, pct)) + '%';
+    if (txt) txt.textContent = Math.round(pct) + '%';
+    if (lbl && label) lbl.textContent = label;
+  }
+  function hideProgress() {
+    const p = document.getElementById('loadProgress');
+    if (p) setTimeout(() => { p.style.display = 'none'; }, 300);
+  }
+
   async function loadData(force = false) {
     currentProduct = document.getElementById('filterProduct')?.value || 'images';
 
@@ -452,7 +487,7 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
     }
 
     document.getElementById('lastRefresh').textContent = 'Loading…';
-    setStatus('<div class="loader"><div class="spinner"></div> Fetching data from BigQuery…</div>');
+    showProgress('Querying BigQuery…');
     const pg = document.getElementById('pagination');
     if (pg) pg.style.display = 'none';
 
@@ -463,7 +498,37 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
         try { const j = await res.json(); if (j && j.error) detail = j.error; } catch (_) {}
         throw new Error(detail);
       }
-      const data = await res.json();
+
+      // Stream the response so we can show real download progress.
+      const total = parseInt(res.headers.get('content-length') || '0', 10);
+      let text;
+      if (res.body && res.body.getReader) {
+        const reader = res.body.getReader();
+        const chunks = [];
+        let received = 0;
+        setProgress(total ? 5 : 20, 'Downloading data…');
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          chunks.push(value);
+          received += value.length;
+          if (total) {
+            setProgress(5 + (received / total) * 85, 'Downloading data…');
+          } else {
+            // unknown length: show received size, creep toward 90%
+            const mb = (received / 1048576).toFixed(1);
+            setProgress(Math.min(90, 20 + received / 40000), `Downloading… ${mb} MB`);
+          }
+        }
+        text = new TextDecoder('utf-8').decode(
+          chunks.reduce((acc, c) => { const t = new Uint8Array(acc.length + c.length); t.set(acc); t.set(c, acc.length); return t; }, new Uint8Array(0))
+        );
+      } else {
+        text = await res.text();  // fallback for old browsers
+      }
+
+      setProgress(92, 'Processing rows…');
+      const data = JSON.parse(text);
       const rows = Array.isArray(data.rows) ? data.rows : [];
 
       // Attach parsed date and drop fully-empty rows (no timestamp).
@@ -480,11 +545,15 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
 
       productCache[currentProduct] = allRows;
 
+      setProgress(100, `Loaded ${allRows.length.toLocaleString()} rows`);
+      hideProgress();
+
       document.getElementById('lastRefresh').textContent =
         'Updated ' + new Date().toLocaleTimeString();
       populateFilters();
       applyFilters();
     } catch (e) {
+      hideProgress();
       document.getElementById('lastRefresh').textContent = '⚠ Load failed: ' + e.message;
       setStatus(`<div class="error-msg">⚠ Could not load data from BigQuery.<br><small>${e.message}</small></div>`);
     }
