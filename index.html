@@ -282,11 +282,6 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
       <div class="stat-value" id="statIssueRate">—</div>
       <div class="stat-sub">% images with an open issue · click for trend</div>
     </div>
-    <div class="stat-card c-danger" onclick="openTrendModal('nonDone')" style="cursor:pointer;" title="Click to view month-wise trend">
-      <div class="stat-label">Non-Done Issues</div>
-      <div class="stat-value" id="statNonDone">—</div>
-      <div class="stat-sub">need attention · click for trend</div>
-    </div>
   </div>
 
   <!-- BREAKDOWN TABLES -->
@@ -387,6 +382,30 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
   </div>
 </div>
 
+  </div>
+
+  <!-- QC USER 7-DAY TREND -->
+  <div class="section-title">QC User Trend — Last 7 Days</div>
+  <div class="table-card" style="margin-bottom:28px;">
+    <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <span>Are users improving? · daily trend per QC user</span>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="toggle-pill" id="userTrendMetricToggle">
+          <button id="utmRate"   onclick="setUserTrendMetric('rate')">Issue Rate %</button>
+          <button id="utmVolume" onclick="setUserTrendMetric('volume')">Images QC'd</button>
+        </div>
+        <select id="userTrendPicker" onchange="renderUserTrendChart()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--text);border-radius:7px;padding:7px 10px;font-size:0.8rem;font-family:var(--sans);">
+          <option value="top5">Top 5 by volume</option>
+          <option value="top10">Top 10 by volume</option>
+          <option value="all">All users</option>
+        </select>
+      </div>
+    </div>
+    <div style="padding:18px 20px;">
+      <div id="userTrendDesc" style="font-size:0.72rem;color:var(--muted);margin-bottom:14px;"></div>
+      <canvas id="userTrendChart" height="90"></canvas>
+      <div id="userTrendEmpty" style="text-align:center;color:var(--muted);font-size:0.82rem;padding:40px 0;display:none;">No data in the last 7 days.</div>
+    </div>
   </div>
 </main>
 
@@ -689,7 +708,6 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
     r.submitIssue.trim().toLowerCase() !== 'done'
 ).length;
     const done  = filteredRows.filter(r => r.submitIssue.trim().toLowerCase() === 'done').length;
-    const nonDone = total - done;
     const issueRate = total ? ((withIssue / total) * 100).toFixed(1) : 0;
 
     // avg issues per unique day
@@ -700,7 +718,6 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
     document.getElementById('statSubmitCount').textContent = withIssue.toLocaleString();
     document.getElementById('statAvgDay').textContent     = avgDay;
     document.getElementById('statIssueRate').textContent  = issueRate + '%';
-    document.getElementById('statNonDone').textContent    = nonDone.toLocaleString();
   }
 
   // ── SORTING (generic, used across every table) ─────────────────────
@@ -776,6 +793,7 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
     buildTopQCUsers();
     buildTopEnterprises();
     buildStatusBreakdown();
+    renderUserTrendChart();
 }
 
   function buildBreakdown(tbodyId, field) {
@@ -1072,6 +1090,147 @@ function renderTopQCTable() {
 
     updateSortArrows('th-topqc', 'topQC');
 }
+// ── QC USER 7-DAY TREND (multi-line, rate % or volume) ──
+let userTrendChartInstance = null;
+let userTrendMetric = 'rate';   // 'rate' | 'volume'
+
+// A distinct palette for comparing users
+const USER_TREND_COLORS = [
+  '#6c63ff','#00d4aa','#f59e0b','#ef4444','#a78bfa',
+  '#3b82f6','#ec4899','#10b981','#f97316','#8b5cf6'
+];
+
+function setUserTrendMetric(m) {
+  userTrendMetric = m;
+  document.getElementById('utmRate').classList.toggle('active', m === 'rate');
+  document.getElementById('utmVolume').classList.toggle('active', m === 'volume');
+  renderUserTrendChart();
+}
+
+function renderUserTrendChart() {
+  const canvas = document.getElementById('userTrendChart');
+  const emptyMsg = document.getElementById('userTrendEmpty');
+  const descEl = document.getElementById('userTrendDesc');
+  if (!canvas) return;
+
+  // keep the toggle visuals in sync (first render)
+  document.getElementById('utmRate').classList.toggle('active', userTrendMetric === 'rate');
+  document.getElementById('utmVolume').classList.toggle('active', userTrendMetric === 'volume');
+
+  // Build the last 7 calendar days (IST-local), oldest → newest.
+  const today = new Date();
+  const days = [];
+  for (let i = 6; i >= 0; i--) {
+    const d = new Date(today.getFullYear(), today.getMonth(), today.getDate() - i);
+    days.push(d);
+  }
+  const dayKeys = days.map(fmt);
+  const labels  = days.map(d => d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }));
+
+  // Aggregate per QC user per day over the last 7 days.
+  // Respect the active Login/Status/Editing filters, but NOT the date picker
+  // (this section is always the trailing 7 days). QC-user filter, if set,
+  // still narrows to that one user.
+  const login   = document.getElementById('filterLogin').value;
+  const qcFilt  = document.getElementById('filterQC').value;
+  const editing = document.getElementById('filterEditing').value;
+  const status  = document.getElementById('filterStatus').value;
+  const daySet  = new Set(dayKeys);
+
+  const userMap = {};   // qcUser → { total, byDay: {dayKey: {total, issues}} }
+  allRows.forEach(r => {
+    if (!r._date) return;
+    const dk = fmt(r._date);
+    if (!daySet.has(dk)) return;
+    if (login   && r.loginUser   !== login)   return;
+    if (qcFilt  && r.qcUser      !== qcFilt)   return;
+    if (editing && r.editUser    !== editing)  return;
+    if (status  && r.submitIssue !== status)   return;
+    const u = r.qcUser || '(blank)';
+    if (!userMap[u]) userMap[u] = { total: 0, byDay: {} };
+    userMap[u].total++;
+    if (!userMap[u].byDay[dk]) userMap[u].byDay[dk] = { total: 0, issues: 0 };
+    userMap[u].byDay[dk].total++;
+    const s = (r.submitIssue || '').trim().toLowerCase();
+    if (s !== '' && s !== 'done') userMap[u].byDay[dk].issues++;
+  });
+
+  // Pick which users to show
+  const pick = document.getElementById('userTrendPicker').value;
+  let users = Object.entries(userMap).sort((a, b) => b[1].total - a[1].total).map(e => e[0]);
+  if (pick === 'top5')  users = users.slice(0, 5);
+  if (pick === 'top10') users = users.slice(0, 10);
+
+  if (userTrendChartInstance) { userTrendChartInstance.destroy(); userTrendChartInstance = null; }
+
+  if (!users.length) {
+    canvas.style.display = 'none';
+    if (emptyMsg) emptyMsg.style.display = 'block';
+    if (descEl) descEl.textContent = '';
+    return;
+  }
+  canvas.style.display = 'block';
+  if (emptyMsg) emptyMsg.style.display = 'none';
+
+  const isRate = userTrendMetric === 'rate';
+  if (descEl) {
+    descEl.textContent = isRate
+      ? 'Daily issue rate (%) per user — a downward line means fewer mistakes over time.'
+      : 'Daily images QC\'d per user — an upward line means higher volume over time.';
+  }
+
+  const datasets = users.map((u, i) => {
+    const color = USER_TREND_COLORS[i % USER_TREND_COLORS.length];
+    const data = dayKeys.map(dk => {
+      const cell = userMap[u].byDay[dk];
+      if (!cell || cell.total === 0) return null;   // gap = no activity that day
+      return isRate ? +((cell.issues / cell.total) * 100).toFixed(1) : cell.total;
+    });
+    return {
+      label: u,
+      data,
+      borderColor: color,
+      backgroundColor: color,
+      tension: 0.3,
+      pointRadius: 3,
+      pointHoverRadius: 5,
+      spanGaps: true,
+      fill: false,
+    };
+  });
+
+  const isLight = document.body.classList.contains('light-mode');
+  const gridColor = isLight ? '#dde1f0' : '#2e3348';
+  const textColor = isLight ? '#6b7280' : '#8892a4';
+
+  userTrendChartInstance = new Chart(canvas.getContext('2d'), {
+    type: 'line',
+    data: { labels, datasets },
+    options: {
+      responsive: true,
+      interaction: { mode: 'index', intersect: false },
+      plugins: {
+        legend: { position: 'bottom', labels: { color: textColor, boxWidth: 12, font: { size: 11 } } },
+        tooltip: {
+          callbacks: {
+            label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y}${isRate ? '%' : ''}`
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: textColor }, grid: { color: gridColor } },
+        y: {
+          beginAtZero: true,
+          max: isRate ? 100 : undefined,
+          title: { display: true, text: isRate ? 'Issue Rate (%)' : 'Images QC\'d', color: textColor },
+          ticks: { color: textColor },
+          grid: { color: gridColor }
+        }
+      }
+    }
+  });
+}
+
 // ── TREND MODAL (generic, month-wise, one metric per stat card) ──
 let trendChartInstance = null;
 const trendModalState = { metric: 'overall', range: '3m', chartType: 'bar' };
@@ -1080,8 +1239,7 @@ const TREND_METRIC_META = {
     totalImages: { title: 'Total Images — Monthly Trend',        label: 'Total Images',        color: '#6c63ff', isPercent: false },
     submitCount: { title: 'Submit Issues (Count) — Monthly Trend', label: 'Submit Issues',      color: '#00d4aa', isPercent: false },
     avgDay:      { title: 'Submit Issue (Avg/Day) — Monthly Trend', label: 'Avg Issues / Day',  color: '#f59e0b', isPercent: false },
-    overall:     { title: 'Overall Issue Rate — Monthly Trend',   label: 'Issue Rate (%)',       color: '#ef4444', isPercent: true },
-    nonDone:     { title: 'Non-Done Issues — Monthly Trend',      label: 'Non-Done Issues',      color: '#ef4444', isPercent: false }
+    overall:     { title: 'Overall Issue Rate — Monthly Trend',   label: 'Issue Rate (%)',       color: '#ef4444', isPercent: true }
 };
 
 function openTrendModal(metric) {
@@ -1160,7 +1318,6 @@ function renderTrendModalChart() {
         switch (metric) {
             case 'totalImages': return m.total;
             case 'submitCount': return m.issues;
-            case 'nonDone':     return m.total - m.done;
             case 'avgDay':      return m.days.size ? +((m.issues / m.days.size).toFixed(1)) : 0;
             case 'overall':
             default:            return m.total ? +((m.issues / m.total) * 100).toFixed(1) : 0;
@@ -1683,6 +1840,8 @@ closeDatePicker();
     if(panel) panel.style.background = 'var(--surface2)';
     // refresh issue-rate trend chart colors for the new theme, if the modal is open
     if (trendChartInstance) renderTrendModalChart();
+    // refresh the user 7-day trend chart colors too
+    if (userTrendChartInstance) renderUserTrendChart();
   }
 
   // ── INIT ─────────────────────────────────────────────────────────────
