@@ -62,6 +62,7 @@ function buildQuery(product, projectId, days) {
 }
 
 let bqClient = null;
+const resultCache = {};   // warm-instance cache: key → { t, payload }
 function getClient() {
   if (bqClient) return bqClient;
   const projectId = process.env.GCP_PROJECT_ID;
@@ -93,9 +94,22 @@ module.exports = async (req, res) => {
   try {
     const projectId = process.env.GCP_PROJECT_ID;
     const sql = buildQuery(product, projectId, days);
+
+    // Warm-instance in-memory cache: if the same product+days was fetched in
+    // the last 2 minutes on this function instance, return it instantly.
+    const cacheKey = `${product}:${days}`;
+    const now = Date.now();
+    if (resultCache[cacheKey] && (now - resultCache[cacheKey].t) < 120000) {
+      res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120');
+      res.setHeader('X-Cache', 'HIT');
+      res.status(200).json(resultCache[cacheKey].payload);
+      return;
+    }
+
     const [rows] = await getClient().query({
       query: sql,
       location: 'asia-south1',
+      useQueryCache: true,       // reuse BigQuery's own cached results
       timeoutMs: 55000,          // fail before Vercel's function limit
     });
 
@@ -113,8 +127,11 @@ module.exports = async (req, res) => {
     }));
 
     // Cache at the edge for 60s to cut BigQuery cost on rapid refreshes.
+    const payload = { product, count: out.length, rows: out };
+    resultCache[cacheKey] = { t: now, payload };
     res.setHeader('Cache-Control', 's-maxage=60, stale-while-revalidate=120');
-    res.status(200).json({ product, count: out.length, rows: out });
+    res.setHeader('X-Cache', 'MISS');
+    res.status(200).json(payload);
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
