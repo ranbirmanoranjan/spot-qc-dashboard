@@ -50,7 +50,7 @@ body {font-family: var(--sans);background: var(--bg);color: var(--text);min-heig
 
 /* ── MAIN ── */main { padding: 24px 28px; width: 100%; max-width: none; margin: 0 auto; }
 
-/* ── FILTERS ── */.filters {background: var(--surface);border: 1px solid var(--border);border-radius: 12px;padding: 18px 20px;display: flex;flex-wrap: wrap;gap: 14px;align-items: flex-end;margin-bottom: 24px;}.filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 170px; flex: 1; }.filter-group label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }.filter-group select,.filter-group input[type="date"] {background: var(--surface2);border: 1px solid var(--border);color: var(--text);border-radius: 7px;padding: 8px 10px;font-size: 0.82rem;font-family: var(--sans);outline: none;transition: border-color .15s;}.filter-group select,.filter-group input[type="date"] { border-color: var(--accent); }.filter-group select option { background: #1a1d27; }.btn-clear {background: transparent;border: 1px solid var(--border);color: var(--muted);padding: 8px 16px;border-radius: 7px;font-size: 0.8rem;cursor: pointer;font-family: var(--sans);transition: color .15s, border-color .15s;height: 36px;}.btn-clear { color: var(--text); border-color: var(--accent); }
+/* ── FILTERS ── */.filters {background: var(--surface);border: 1px solid var(--border);border-radius: 12px;padding: 18px 20px;display: flex;flex-wrap: wrap;gap: 14px;align-items: flex-end;margin-bottom: 24px;position: sticky;top: 60px;z-index: 90;}.filter-group { display: flex; flex-direction: column; gap: 5px; min-width: 170px; flex: 1; }.filter-group label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; letter-spacing: .08em; font-weight: 600; }.filter-group select,.filter-group input[type="date"] {background: var(--surface2);border: 1px solid var(--border);color: var(--text);border-radius: 7px;padding: 8px 10px;font-size: 0.82rem;font-family: var(--sans);outline: none;transition: border-color .15s;}.filter-group select,.filter-group input[type="date"] { border-color: var(--accent); }.filter-group select option { background: #1a1d27; }.btn-clear {background: transparent;border: 1px solid var(--border);color: var(--muted);padding: 8px 16px;border-radius: 7px;font-size: 0.8rem;cursor: pointer;font-family: var(--sans);transition: color .15s, border-color .15s;height: 36px;}.btn-clear { color: var(--text); border-color: var(--accent); }
 
 /* ── STAT CARDS ── */.stats-grid {display: grid;grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));gap: 16px;margin-bottom: 24px;}.stat-card {background: var(--surface);border: 1px solid var(--border);border-radius: 12px;padding: 18px 20px;position: relative;overflow: hidden;}.stat-card::before {content: '';position: absolute;top: 0; left: 0; right: 0;height: 3px;}.stat-card.c-accent::before { background: var(--accent); }.stat-card.c-green::before { background: var(--accent2); }.stat-card.c-warn::before { background: var(--warn); }.stat-card.c-danger::before { background: var(--danger); }.stat-card.c-purple::before { background: #a78bfa; }
 
@@ -306,12 +306,12 @@ body.light-mode .brand-logo-dark  { display: none; }
   </div>
 </div>
 
-<div class="table-card">
+<div class="table-card" style="display:flex;flex-direction:column;">
   <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
     <span>By QC User</span>
     <span style="font-size:0.65rem;color:var(--muted);font-weight:400;">click a row for enterprise breakdown</span>
   </div>
-  <div class="table-scroll" style="max-height:320px;overflow-y:auto;">
+  <div class="table-scroll" style="flex:1;min-height:0;overflow-y:auto;">
     <table>
       <thead style="position:sticky;top:0;z-index:2;"><tr>
         <th class="sortable" id="th-qc-key" onclick="setSort('qcUser','key')">QC User<span class="arrow"></span></th>
@@ -323,6 +323,35 @@ body.light-mode .brand-logo-dark  { display: none; }
     </table>
   </div>
 </div>
+
+  </div>
+  <!-- end breakdown pair grid -->
+
+  <!-- QC USER 7-DAY TREND (moved to right after Breakdown) -->
+  <div class="section-title">QC User Trend — Last 7 Days</div>
+  <div class="table-card" style="margin-bottom:28px;">
+    <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
+      <span>Are users improving? · daily trend per QC user</span>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <div class="toggle-pill" id="userTrendMetricToggle">
+          <button id="utmRate"   onclick="setUserTrendMetric('rate')">Issue Rate %</button>
+          <button id="utmVolume" onclick="setUserTrendMetric('volume')">Images QC'd</button>
+        </div>
+        <select id="userTrendPicker" onchange="renderUserTrendChart()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--text);border-radius:7px;padding:7px 10px;font-size:0.8rem;font-family:var(--sans);">
+          <option value="top5">Top 5 by volume</option>
+          <option value="top10">Top 10 by volume</option>
+          <option value="all">All users</option>
+        </select>
+      </div>
+    </div>
+    <div style="padding:18px 20px;">
+      <div id="userTrendDesc" style="font-size:0.72rem;color:var(--muted);margin-bottom:14px;"></div>
+      <canvas id="userTrendChart" height="90"></canvas>
+      <div id="userTrendEmpty" style="text-align:center;color:var(--muted);font-size:0.82rem;padding:40px 0;display:none;">No data in the last 7 days.</div>
+    </div>
+  </div>
+
+  <div class="tables-row">
 
 <div class="table-card" style="grid-column: 1 / -1;">
   <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
@@ -385,29 +414,6 @@ body.light-mode .brand-logo-dark  { display: none; }
 
   </div>
 
-  <!-- QC USER 7-DAY TREND -->
-  <div class="section-title">QC User Trend — Last 7 Days</div>
-  <div class="table-card" style="margin-bottom:28px;">
-    <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px;">
-      <span>Are users improving? · daily trend per QC user</span>
-      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <div class="toggle-pill" id="userTrendMetricToggle">
-          <button id="utmRate"   onclick="setUserTrendMetric('rate')">Issue Rate %</button>
-          <button id="utmVolume" onclick="setUserTrendMetric('volume')">Images QC'd</button>
-        </div>
-        <select id="userTrendPicker" onchange="renderUserTrendChart()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--text);border-radius:7px;padding:7px 10px;font-size:0.8rem;font-family:var(--sans);">
-          <option value="top5">Top 5 by volume</option>
-          <option value="top10">Top 10 by volume</option>
-          <option value="all">All users</option>
-        </select>
-      </div>
-    </div>
-    <div style="padding:18px 20px;">
-      <div id="userTrendDesc" style="font-size:0.72rem;color:var(--muted);margin-bottom:14px;"></div>
-      <canvas id="userTrendChart" height="90"></canvas>
-      <div id="userTrendEmpty" style="text-align:center;color:var(--muted);font-size:0.82rem;padding:40px 0;display:none;">No data in the last 7 days.</div>
-    </div>
-  </div>
 </main>
 
 <!-- TREND MODAL (generic — used by all 5 stat cards) -->
@@ -577,6 +583,7 @@ body.light-mode .brand-logo-dark  { display: none; }
       allRows = rows
         .filter(r => r.timestamp)
         .filter(r => !isTestUser(r.loginUser) && !isTestUser(r.qcUser))
+        .filter(r => !hasMultipleEmails(r.qcUser))
         .map(r => ({ ...r, _date: parseDate(r.timestamp) }));
 
       // keep data chronologically sorted (nulls last)
@@ -873,8 +880,6 @@ body.light-mode .brand-logo-dark  { display: none; }
   function buildQCUserTable() {
     const map = {};
     filteredRows.forEach(r => {
-      // Drop QC users whose value holds more than one email address.
-      if (hasMultipleEmails(r.qcUser)) return;
       const key = r.qcUser || '(blank)';
       if (!map[key]) map[key] = { total: 0, issues: 0 };
       map[key].total++;
