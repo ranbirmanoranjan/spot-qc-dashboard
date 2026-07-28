@@ -292,9 +292,9 @@ body.light-mode .brand-logo-dark  { display: none; }
 
 <div class="table-card">
   <div class="table-card-header">By Login User</div>
-  <div class="table-scroll">
+  <div class="table-scroll" style="max-height:340px;overflow-y:auto;">
     <table>
-      <thead><tr>
+      <thead style="position:sticky;top:0;z-index:2;"><tr>
         <th class="sortable" id="th-login-key" onclick="setSort('loginUser','key')">Login User<span class="arrow"></span></th>
         <th class="sortable" id="th-login-total" onclick="setSort('loginUser','total')">Images<span class="arrow"></span></th>
         <th class="sortable" id="th-login-issues" onclick="setSort('loginUser','issues')">Issues<span class="arrow"></span></th>
@@ -306,12 +306,12 @@ body.light-mode .brand-logo-dark  { display: none; }
   </div>
 </div>
 
-<div class="table-card" style="display:flex;flex-direction:column;">
+<div class="table-card">
   <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
     <span>By QC User</span>
     <span style="font-size:0.65rem;color:var(--muted);font-weight:400;">click a row for enterprise breakdown</span>
   </div>
-  <div class="table-scroll" style="flex:1;min-height:0;overflow-y:auto;">
+  <div class="table-scroll" style="max-height:340px;overflow-y:auto;">
     <table>
       <thead style="position:sticky;top:0;z-index:2;"><tr>
         <th class="sortable" id="th-qc-key" onclick="setSort('qcUser','key')">QC User<span class="arrow"></span></th>
