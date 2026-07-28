@@ -337,6 +337,9 @@ body.light-mode .brand-logo-dark  { display: none; }
           <button id="utmRate"   onclick="setUserTrendMetric('rate')">Issue Rate %</button>
           <button id="utmVolume" onclick="setUserTrendMetric('volume')">Images QC'd</button>
         </div>
+        <div class="toggle-pill" id="userTrendLabelsToggle">
+          <button id="utLabelsBtn" onclick="toggleUserTrendLabels()">Data Labels</button>
+        </div>
         <select id="userTrendPicker" onchange="renderUserTrendChart()" style="background:var(--surface2);border:1px solid var(--accent);color:var(--text);border-radius:7px;padding:7px 10px;font-size:0.8rem;font-family:var(--sans);">
           <option value="top5">Top 5 by volume</option>
           <option value="top10">Top 10 by volume</option>
@@ -1124,6 +1127,39 @@ function renderTopQCTable() {
 // ── QC USER 7-DAY TREND (multi-line, rate % or volume) ──
 let userTrendChartInstance = null;
 let userTrendMetric = 'rate';   // 'rate' | 'volume'
+let userTrendLabels = false;    // data labels on points: off by default
+
+// Inline Chart.js plugin — draws each point's value when labels are enabled.
+// No external dependency; reads the userTrendLabels / userTrendMetric flags.
+const userTrendDataLabelPlugin = {
+  id: 'userTrendDataLabels',
+  afterDatasetsDraw(chart) {
+    if (!userTrendLabels) return;
+    const ctx = chart.ctx;
+    const isRateNow = userTrendMetric === 'rate';
+    ctx.save();
+    ctx.font = "600 10px 'Inter', system-ui, sans-serif";
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'bottom';
+    chart.data.datasets.forEach((ds, di) => {
+      if (!chart.isDatasetVisible(di)) return;
+      const meta = chart.getDatasetMeta(di);
+      meta.data.forEach((pt, idx) => {
+        const val = ds.data[idx];
+        if (val === null || val === undefined) return;
+        ctx.fillStyle = ds.borderColor;
+        ctx.fillText(isRateNow ? val + '%' : val, pt.x, pt.y - 6);
+      });
+    });
+    ctx.restore();
+  }
+};
+
+function toggleUserTrendLabels() {
+  userTrendLabels = !userTrendLabels;
+  document.getElementById('utLabelsBtn').classList.toggle('active', userTrendLabels);
+  renderUserTrendChart();
+}
 
 // A distinct palette for comparing users
 const USER_TREND_COLORS = [
@@ -1147,6 +1183,7 @@ function renderUserTrendChart() {
   // keep the toggle visuals in sync (first render)
   document.getElementById('utmRate').classList.toggle('active', userTrendMetric === 'rate');
   document.getElementById('utmVolume').classList.toggle('active', userTrendMetric === 'volume');
+  document.getElementById('utLabelsBtn').classList.toggle('active', userTrendLabels);
 
   // Build the last 7 calendar days (IST-local), oldest → newest.
   const today = new Date();
@@ -1237,8 +1274,10 @@ function renderUserTrendChart() {
   userTrendChartInstance = new Chart(canvas.getContext('2d'), {
     type: 'line',
     data: { labels, datasets },
+    plugins: [userTrendDataLabelPlugin],
     options: {
       responsive: true,
+      layout: { padding: { top: userTrendLabels ? 18 : 0 } },
       interaction: { mode: 'index', intersect: false },
       plugins: {
         legend: { position: 'bottom', labels: { color: textColor, boxWidth: 12, font: { size: 11 } } },
