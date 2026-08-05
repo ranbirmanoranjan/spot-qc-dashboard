@@ -491,6 +491,35 @@ body.light-mode .brand-logo-dark  { display: none; }
   let currentProduct = 'images';
   const productCache = {};   // product → merged rows (so switching is instant)
 
+  // ── 360-SPIN ONLY: SKU-level "Wrong QC" issue flag ──────────────────
+  // For the 360-Spin product, an image/row counts as "having an issue" if
+  // ANY row for that SKU_Id — anywhere in the SKU's history, regardless of
+  // which filters are currently active — has an `issue` (reason) value
+  // containing the text "Wrong QC" (case-insensitive). This is a property
+  // of the SKU itself, so it's computed once from the full `allRows` set
+  // for the product, not from the currently filtered rows.
+  // Images product is untouched: it keeps the original submitIssue-based
+  // "blank/Done = no issue, anything else = issue" logic everywhere.
+  let wrongQCSkuSet = new Set();
+  function rebuildWrongQCSkuSet() {
+    wrongQCSkuSet = new Set();
+    if (currentProduct !== '360') return;
+    allRows.forEach(r => {
+      if (r.skuId && r.issue && String(r.issue).toLowerCase().includes('wrong qc')) {
+        wrongQCSkuSet.add(r.skuId);
+      }
+    });
+  }
+  // Single source of truth for "does this row represent an issue?"
+  //  - 360-Spin: row's SKU_Id is in the flagged (Wrong QC) set
+  //  - Images:   original submitIssue logic (non-blank and not "Done")
+  function rowHasIssue(r) {
+    if (currentProduct === '360') {
+      return !!(r.skuId && wrongQCSkuSet.has(r.skuId));
+    }
+    return !!(r.submitIssue && r.submitIssue.trim() !== '' && r.submitIssue.trim().toLowerCase() !== 'done');
+  }
+
   function switchProduct() {
     // reset value-filters since options differ per product
     ['filterLogin','filterQC','filterEditing','filterStatus'].forEach(id => {
@@ -530,6 +559,7 @@ body.light-mode .brand-logo-dark  { display: none; }
     // serve from cache on product switch (Refresh button forces a refetch)
     if (!force && productCache[currentProduct]) {
       allRows = productCache[currentProduct];
+      rebuildWrongQCSkuSet();
       populateFilters();
       applyFilters();
       return;
@@ -597,6 +627,7 @@ body.light-mode .brand-logo-dark  { display: none; }
       });
 
       productCache[currentProduct] = allRows;
+      rebuildWrongQCSkuSet();
 
       setProgress(100, `Loaded ${allRows.length.toLocaleString()} rows`);
       hideProgress();
@@ -736,11 +767,7 @@ body.light-mode .brand-logo-dark  { display: none; }
   // ── STATS ────────────────────────────────────────────────────────────
   function updateStats() {
     const total = filteredRows.length;
-    const withIssue = filteredRows.filter(r =>
-    r.submitIssue &&
-    r.submitIssue.trim() !== '' &&
-    r.submitIssue.trim().toLowerCase() !== 'done'
-).length;
+    const withIssue = filteredRows.filter(rowHasIssue).length;
     const done  = filteredRows.filter(r => r.submitIssue.trim().toLowerCase() === 'done').length;
     const issueRate = total ? ((withIssue / total) * 100).toFixed(1) : 0;
 
@@ -836,11 +863,7 @@ body.light-mode .brand-logo-dark  { display: none; }
       const key = r[field] || '(blank)';
       if (!map[key]) map[key] = { total: 0, issues: 0, done: 0 };
       map[key].total++;
-      if (
-        r.submitIssue &&
-        r.submitIssue.trim() !== '' &&
-        r.submitIssue.trim().toLowerCase() !== 'done'
-      ) {
+      if (rowHasIssue(r)) {
         map[key].issues++;
       }
       if (r.submitIssue.trim().toLowerCase() === 'done') map[key].done++;
@@ -886,8 +909,7 @@ body.light-mode .brand-logo-dark  { display: none; }
       const key = r.qcUser || '(blank)';
       if (!map[key]) map[key] = { total: 0, issues: 0 };
       map[key].total++;
-      const status = (r.submitIssue || '').trim().toLowerCase();
-      if (status !== '' && status !== 'done') map[key].issues++;
+      if (rowHasIssue(r)) map[key].issues++;
     });
     qcUserData = Object.entries(map).map(([key, v]) => ({
       key, total: v.total, issues: v.issues,
@@ -931,8 +953,7 @@ body.light-mode .brand-logo-dark  { display: none; }
         const ent = (r.enterprise || '').trim() || 'N/A';
         if (!entMap[ent]) entMap[ent] = { total: 0, issues: 0 };
         entMap[ent].total++;
-        const status = (r.submitIssue || '').trim().toLowerCase();
-        if (status !== '' && status !== 'done') entMap[ent].issues++;
+        if (rowHasIssue(r)) entMap[ent].issues++;
       });
     const rows = Object.entries(entMap).sort((a,b) => b[1].issues - a[1].issues);
 
@@ -1081,10 +1102,9 @@ function buildTopQCUsers() {
         if (!map[qc]) map[qc] = { total: 0, issues: 0 };
         map[qc].total++;
 
-        const status = (r.submitIssue || "").trim().toLowerCase();
-
-        // Ignore Done and Blank when counting submit issues
-        if (status === "" || status === "done") return;
+        // Ignore Done and Blank when counting submit issues (Images); for
+        // 360-Spin, counts via the SKU-level "Wrong QC" flag instead.
+        if (!rowHasIssue(r)) return;
 
         map[qc].issues++;
 
@@ -1219,8 +1239,7 @@ function renderUserTrendChart() {
     userMap[u].total++;
     if (!userMap[u].byDay[dk]) userMap[u].byDay[dk] = { total: 0, issues: 0 };
     userMap[u].byDay[dk].total++;
-    const s = (r.submitIssue || '').trim().toLowerCase();
-    if (s !== '' && s !== 'done') userMap[u].byDay[dk].issues++;
+    if (rowHasIssue(r)) userMap[u].byDay[dk].issues++;
   });
 
   // Pick which users to show
@@ -1380,7 +1399,7 @@ function renderTrendModalChart() {
         m.total++;
         m.days.add(fmt(r._date));
         const s = (r.submitIssue || '').trim().toLowerCase();
-        if (s !== '' && s !== 'done') m.issues++;
+        if (rowHasIssue(r)) m.issues++;
         if (s === 'done') m.done++;
     });
 
@@ -1500,8 +1519,7 @@ function buildTopEnterprises() {
         const ent = (r.enterprise || '').trim() || 'N/A';
         if (!map[ent]) map[ent] = { issues: 0, total: 0 };
         map[ent].total++;
-        const status = (r.submitIssue || '').trim().toLowerCase();
-        if (status !== '' && status !== 'done') {
+        if (rowHasIssue(r)) {
             map[ent].issues++;
         }
     });
