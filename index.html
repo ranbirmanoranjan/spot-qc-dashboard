@@ -494,10 +494,16 @@ body.light-mode .brand-logo-dark  { display: none; }
   // ── 360-SPIN ONLY: SKU-level "Wrong QC" issue flag ──────────────────
   // For the 360-Spin product, an image/row counts as "having an issue" if
   // ANY row for that SKU_Id — anywhere in the SKU's history, regardless of
-  // which filters are currently active — has an `issue` (reason) value
-  // containing the text "Wrong QC" (case-insensitive). This is a property
-  // of the SKU itself, so it's computed once from the full `allRows` set
-  // for the product, not from the currently filtered rows.
+  // which filters are currently active — has a `submitIssue` value
+  // containing the text "Wrong QC" (case-insensitive; e.g. the real value
+  // is literally "Wrong QC, To Be Edited"). This is a property of the SKU
+  // itself, so it's computed once from the full `allRows` set for the
+  // product, not from the currently filtered rows.
+  // NOTE: verified directly against the live /api/qc?product=360 response —
+  // the `issue` field holds an unrelated defect taxonomy (e.g. "Warping:
+  // Blocker", "Placement: Blocker") and never contains "Wrong QC"; the
+  // "Wrong QC" text lives in `submitIssue` alongside "Done", "To Be Edited",
+  // "Missing Issue Marking | RBG", etc.
   // Images product is untouched: it keeps the original submitIssue-based
   // "blank/Done = no issue, anything else = issue" logic everywhere.
   let wrongQCSkuSet = new Set();
@@ -505,7 +511,7 @@ body.light-mode .brand-logo-dark  { display: none; }
     wrongQCSkuSet = new Set();
     if (currentProduct !== '360') return;
     allRows.forEach(r => {
-      if (r.skuId && r.issue && String(r.issue).toLowerCase().includes('wrong qc')) {
+      if (r.skuId && r.submitIssue && String(r.submitIssue).toLowerCase().includes('wrong qc')) {
         wrongQCSkuSet.add(r.skuId);
       }
     });
