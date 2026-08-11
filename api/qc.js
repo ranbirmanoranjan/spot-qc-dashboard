@@ -23,27 +23,38 @@ const { BigQuery } = require('@google-cloud/bigquery');
 // while avoiding shipping the entire multi-year table on every load.
 const TABLE = { images: 'image_responses', '360': 'responses_360' };
 
+// AGGREGATED at the grain (day, enterprise, qcUser, editUser, submitIssue,
+// loginUser) with COUNT(*) AS n. This collapses ~435k raw rows to ~60k
+// summarized rows, so the function returns in seconds instead of paginating
+// hundreds of thousands of rows for minutes (which crashed the browser).
+//
+// `day` is computed in IST (Asia/Kolkata) so it matches the dashboard's
+// day-bucketing exactly — DATE(Timestamp) alone would use UTC and shift
+// evening records to the wrong day.
 const SELECT_COLS = {
   images: `
-      Timestamp     AS ts,
+      FORMAT_DATE('%Y-%m-%d', DATE(Timestamp, 'Asia/Kolkata')) AS day,
       Enterprise    AS enterprise,
       QC_User       AS qcUser,
       Editing_User  AS editUser,
-      SKU_ID        AS skuId,
-      Image_ID      AS imageId,
-      Issue         AS issue,
       Submit_Issue  AS submitIssue,
-      Login_User    AS loginUser`,
+      Login_User    AS loginUser,
+      COUNT(*)      AS n`,
   '360': `
-      Timestamp     AS ts,
+      FORMAT_DATE('%Y-%m-%d', DATE(Timestamp, 'Asia/Kolkata')) AS day,
       Enterprise    AS enterprise,
       User          AS qcUser,
       CAST(NULL AS STRING) AS editUser,
-      SKU_ID        AS skuId,
-      Spin_ID       AS imageId,
-      Issues        AS issue,
       Reason        AS submitIssue,
-      QC_By         AS loginUser`,
+      QC_By         AS loginUser,
+      COUNT(*)      AS n`,
+};
+
+// Grouping columns (everything selected except the COUNT and the constant-NULL
+// editUser for 360). Grouping by output alias is supported in BigQuery.
+const GROUP_BY = {
+  images: 'GROUP BY day, enterprise, qcUser, editUser, submitIssue, loginUser',
+  '360':  'GROUP BY day, enterprise, qcUser, submitIssue, loginUser',
 };
 
 function buildQuery(product, projectId, days) {
@@ -57,7 +68,7 @@ function buildQuery(product, projectId, days) {
     SELECT ${cols}
     FROM \`${projectId}.spot_qc.${table}\`
     ${where}
-    ORDER BY Timestamp
+    ${GROUP_BY[product]}
   `;
 }
 
@@ -113,17 +124,15 @@ module.exports = async (req, res) => {
       timeoutMs: 55000,          // fail before Vercel's function limit
     });
 
-    // BigQuery TIMESTAMP comes back as a { value: 'ISO string' } object.
+    // Aggregated rows: day (IST 'YYYY-MM-DD' string) + dimensions + count n.
     const out = rows.map(r => ({
-      timestamp:   r.ts && r.ts.value ? r.ts.value : (r.ts || ''),
+      day:         r.day         || '',
       enterprise:  r.enterprise  || '',
       qcUser:      r.qcUser      || '',
       editUser:    r.editUser    || '',
-      skuId:       r.skuId       || '',
-      imageId:     r.imageId     || '',
-      issue:       (r.issue || '').replace(/\s*\n\s*/g, ' | '),
       submitIssue: r.submitIssue || '',
       loginUser:   r.loginUser   || '',
+      n:           Number(r.n)   || 0,
     }));
 
     // Cache at the edge for 60s to cut BigQuery cost on rapid refreshes.
