@@ -28,12 +28,15 @@ const TABLE = { images: 'image_responses', '360': 'responses_360' };
 // summarized rows, so the function returns in seconds instead of paginating
 // hundreds of thousands of rows for minutes (which crashed the browser).
 //
-// `day` is computed in IST (Asia/Kolkata) so it matches the dashboard's
-// day-bucketing exactly — DATE(Timestamp) alone would use UTC and shift
-// evening records to the wrong day.
+// `day` is the QC SHIFT-DAY in IST, not the calendar day. The Spot QC team
+// works 5 PM → 5 AM, so a shift is labeled by the date it STARTED: the window
+// [D 17:00, D+1 17:00) all belongs to day D. We shift the boundary from
+// midnight to 17:00 by subtracting 17 hours before taking the IST date, so a
+// correction at 2 AM on the 16th correctly counts as the 15th's shift.
+// (India has no DST, so the fixed offset makes this exact.)
 const SELECT_COLS = {
   images: `
-      FORMAT_DATE('%Y-%m-%d', DATE(Timestamp, 'Asia/Kolkata')) AS day,
+      FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_SUB(Timestamp, INTERVAL 17 HOUR), 'Asia/Kolkata')) AS day,
       Enterprise    AS enterprise,
       QC_User       AS qcUser,
       Editing_User  AS editUser,
@@ -41,7 +44,7 @@ const SELECT_COLS = {
       Login_User    AS loginUser,
       COUNT(*)      AS n`,
   '360': `
-      FORMAT_DATE('%Y-%m-%d', DATE(Timestamp, 'Asia/Kolkata')) AS day,
+      FORMAT_DATE('%Y-%m-%d', DATE(TIMESTAMP_SUB(Timestamp, INTERVAL 17 HOUR), 'Asia/Kolkata')) AS day,
       Enterprise    AS enterprise,
       User          AS qcUser,
       CAST(NULL AS STRING) AS editUser,
