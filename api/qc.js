@@ -63,10 +63,18 @@ const GROUP_BY = {
 function buildQuery(product, projectId, days) {
   const table = TABLE[product];
   const cols  = SELECT_COLS[product];
-  // days<=0 means "all" (no date filter)
-  const where = days > 0
-    ? `WHERE Timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)`
-    : '';
+
+  // Always drop future-dated rows. A QC event cannot occur in the future, so
+  // any Timestamp > now is corrupt data (a bulk backfill was writing the
+  // insertion time — dated months ahead — instead of the real QC time). This
+  // guard applies even when days='all', so those rows never reach the
+  // dashboard, KPIs, or the Slack report.
+  const conds = ['Timestamp <= CURRENT_TIMESTAMP()'];
+  if (days > 0) {
+    conds.push(`Timestamp >= TIMESTAMP_SUB(CURRENT_TIMESTAMP(), INTERVAL ${days} DAY)`);
+  }
+  const where = 'WHERE ' + conds.join(' AND ');
+
   return `
     SELECT ${cols}
     FROM \`${projectId}.spot_qc.${table}\`
