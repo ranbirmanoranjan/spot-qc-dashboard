@@ -120,6 +120,12 @@ th.sortable.sort-active .arrow { opacity: 1; color: var(--accent); }tbody tr { b
 .brand-logo-dark  { display: block; }
 body.light-mode .brand-logo-light { display: block; }
 body.light-mode .brand-logo-dark  { display: none; }
+
+/* CSV download buttons on report cards */
+.csv-btn { background:var(--surface2); border:1px solid var(--border); color:var(--muted);
+  font-size:0.62rem; font-weight:600; letter-spacing:.03em; padding:4px 9px; border-radius:6px;
+  cursor:pointer; font-family:var(--sans); white-space:nowrap; transition:color .15s,border-color .15s; }
+.csv-btn:hover { color:var(--text); border-color:var(--accent); }
 </style>
 </head>
 <body>
@@ -291,7 +297,7 @@ body.light-mode .brand-logo-dark  { display: none; }
   <div class="tables-row">
 
 <div class="table-card">
-  <div class="table-card-header">By Login User</div>
+  <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;"><span>By Login User</span><button class="csv-btn" onclick="exportLoginUserCsv()">⬇ CSV</button></div>
   <div class="table-scroll" style="max-height:340px;overflow-y:auto;">
     <table>
       <thead style="position:sticky;top:0;z-index:2;"><tr>
@@ -309,7 +315,7 @@ body.light-mode .brand-logo-dark  { display: none; }
 <div class="table-card">
   <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
     <span>By QC User</span>
-    <span style="font-size:0.65rem;color:var(--muted);font-weight:400;">click a row for enterprise breakdown</span>
+    <span style="display:flex;align-items:center;gap:10px;"><span style="font-size:0.65rem;color:var(--muted);font-weight:400;">click a row for enterprise breakdown</span><button class="csv-btn" onclick="exportQCUserCsv()">⬇ CSV</button></span>
   </div>
   <div class="table-scroll" style="max-height:340px;overflow-y:auto;">
     <table>
@@ -359,13 +365,13 @@ body.light-mode .brand-logo-dark  { display: none; }
 <div class="table-card" style="grid-column: 1 / -1;">
   <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
     <span>QC'd Images per User (Date-wise)</span>
-    <span id="qcCountUsers" style="font-size:0.65rem;color:var(--muted);font-weight:400;">—</span>
+    <span style="display:flex;align-items:center;gap:10px;"><span id="qcCountUsers" style="font-size:0.65rem;color:var(--muted);font-weight:400;">—</span><button class="csv-btn" onclick="exportMatrixCsv()">⬇ CSV</button></span>
   </div>
   <div class="table-scroll" id="qcMatrixWrap" style="max-height:520px;overflow:auto;"></div>
 </div>
 
 <div class="table-card">
-  <div class="table-card-header">Top 10 QC Users (Highest Submit Issues)</div>
+  <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;"><span>Top 10 QC Users (Highest Submit Issues)</span><button class="csv-btn" onclick="exportTopQCCsv()">⬇ CSV</button></div>
   <div class="table-scroll">
     <table>
       <thead>
@@ -383,7 +389,7 @@ body.light-mode .brand-logo-dark  { display: none; }
 <div class="table-card">
   <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;">
     <span>Top 10 Enterprises (Highest Submit Issues)</span>
-    <span style="font-size:0.65rem;color:var(--muted);font-weight:400;">click a row for issue-category breakdown</span>
+    <span style="display:flex;align-items:center;gap:10px;"><span style="font-size:0.65rem;color:var(--muted);font-weight:400;">click a row for issue-category breakdown</span><button class="csv-btn" onclick="exportTopEntCsv()">⬇ CSV</button></span>
   </div>
   <div class="table-scroll">
     <table>
@@ -402,7 +408,7 @@ body.light-mode .brand-logo-dark  { display: none; }
 </div>
 
 <div class="table-card">
-  <div class="table-card-header">By Submit Issue Status</div>
+  <div class="table-card-header" style="display:flex;align-items:center;justify-content:space-between;"><span>By Submit Issue Status</span><button class="csv-btn" onclick="exportStatusCsv()">⬇ CSV</button></div>
   <div class="table-scroll">
     <table>
       <thead><tr>
@@ -1297,7 +1303,7 @@ function renderUserTrendChart() {
         x: { ticks: { color: textColor }, grid: { color: gridColor } },
         y: {
           beginAtZero: true,
-          max: isRate ? 100 : undefined,
+          suggestedMax: isRate ? 5 : undefined,
           title: { display: true, text: isRate ? 'Issue Rate (%)' : 'Images QC\'d', color: textColor },
           ticks: { color: textColor },
           grid: { color: gridColor }
@@ -1490,7 +1496,10 @@ function renderTrendModalChart() {
                 x: { ticks: { color: textColor }, grid: { color: gridColor } },
                 y: {
                     beginAtZero: true,
-                    max: meta.isPercent ? 100 : undefined,
+                    // Issue rate lives in a narrow low band; use a 5% floor so
+                    // small monthly differences are readable, but auto-extend if
+                    // a month ever exceeds it (so it's honest and never clips).
+                    suggestedMax: meta.isPercent ? 5 : undefined,
                     title: { display: true, text: meta.label, color: textColor },
                     ticks: { color: textColor },
                     grid: { color: gridColor }
@@ -1922,6 +1931,84 @@ closeDatePicker();
 
   // ── INIT ─────────────────────────────────────────────────────────────
   loadData();
+
+
+  // ── CSV EXPORT ─────────────────────────────────────────────────────
+  // Every export uses allRows (the full loaded dataset), so the CSV ignores
+  // the on-screen Login/QC/Editing/Status/date filters. Test and multi-email
+  // users are already excluded from allRows at load time.
+  function _csvEsc(val){ var s = (val==null?'':String(val)); return /[",\n\r]/.test(s) ? '"'+s.replace(/"/g,'""')+'"' : s; }
+  function _rowsToCsv(header, rows){ return [header].concat(rows).map(function(r){ return r.map(_csvEsc).join(','); }).join('\r\n'); }
+  function _csvStamp(){ var d=new Date(), p=function(n){return String(n).padStart(2,'0');}; return d.getFullYear()+p(d.getMonth()+1)+p(d.getDate()); }
+  function _downloadCsv(filename, csv){
+    if(!allRows || !allRows.length){ alert('Data is still loading — try again in a moment.'); return; }
+    var blob = new Blob(['\ufeff'+csv], {type:'text/csv;charset=utf-8;'});
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }
+  function _rate(iss, tot){ return tot ? +((iss/tot)*100).toFixed(1) : 0; }
+
+  function exportLoginUserCsv(){
+    var map={};
+    allRows.forEach(function(r){ var k=r.loginUser||'(blank)'; if(!map[k])map[k]={total:0,issues:0,done:0};
+      map[k].total+=r.n; var v=(r.submitIssue||'').trim().toLowerCase();
+      if(v!==''&&v!=='done')map[k].issues+=r.n; if(v==='done')map[k].done+=r.n; });
+    var rows=Object.keys(map).map(function(k){var v=map[k];return [k,v.total,v.issues,v.done,_rate(v.issues,v.total)];})
+      .sort(function(a,b){return b[1]-a[1];});
+    _downloadCsv('by_login_user_'+_csvStamp()+'.csv', _rowsToCsv(['Login User','Images','Issues','Done','Issue Rate %'], rows));
+  }
+
+  function exportQCUserCsv(){
+    var map={};
+    allRows.forEach(function(r){ var k=r.qcUser||'(blank)'; if(!map[k])map[k]={total:0,issues:0};
+      map[k].total+=r.n; var v=(r.submitIssue||'').trim().toLowerCase(); if(v!==''&&v!=='done')map[k].issues+=r.n; });
+    var rows=Object.keys(map).map(function(k){var v=map[k];return [k,v.total,v.issues,_rate(v.issues,v.total)];})
+      .sort(function(a,b){return b[1]-a[1];});
+    _downloadCsv('by_qc_user_'+_csvStamp()+'.csv', _rowsToCsv(['QC User','Images','Issues','Issue Rate %'], rows));
+  }
+
+  function exportMatrixCsv(){
+    var userMap={}, daySet={};
+    allRows.forEach(function(r){ if(!r.day)return; var k=r.qcUser||'(blank)'; daySet[r.day]=1;
+      if(!userMap[k])userMap[k]={total:0,byDate:{}}; userMap[k].total+=r.n;
+      userMap[k].byDate[r.day]=(userMap[k].byDate[r.day]||0)+r.n; });
+    var days=Object.keys(daySet).sort();
+    var header=['QC User'].concat(days).concat(['Total']);
+    var rows=Object.keys(userMap).map(function(k){ var v=userMap[k];
+      return [k].concat(days.map(function(d){return v.byDate[d]||0;})).concat([v.total]); })
+      .sort(function(a,b){return b[b.length-1]-a[a.length-1];});
+    _downloadCsv('qc_images_matrix_'+_csvStamp()+'.csv', _rowsToCsv(header, rows));
+  }
+
+  function exportTopQCCsv(){
+    var map={};
+    allRows.forEach(function(r){ var k=r.qcUser||'N/A'; if(!map[k])map[k]={total:0,issues:0};
+      map[k].total+=r.n; var s=(r.submitIssue||'').trim().toLowerCase(); if(s===''||s==='done')return; map[k].issues+=r.n; });
+    var rows=Object.keys(map).map(function(k){var v=map[k];return [k,v.issues,v.total,_rate(v.issues,v.total)];})
+      .sort(function(a,b){return b[1]-a[1];});
+    _downloadCsv('qc_users_submit_issues_'+_csvStamp()+'.csv', _rowsToCsv(['QC User','Submit Issues','Images','Issue Rate %'], rows));
+  }
+
+  function exportTopEntCsv(){
+    var map={};
+    allRows.forEach(function(r){ var k=(r.enterprise||'').trim()||'N/A'; if(!map[k])map[k]={total:0,issues:0};
+      map[k].total+=r.n; var s=(r.submitIssue||'').trim().toLowerCase(); if(s!==''&&s!=='done')map[k].issues+=r.n; });
+    var rows=Object.keys(map).map(function(k){var v=map[k];return [k,v.issues,v.total,_rate(v.issues,v.total)];})
+      .sort(function(a,b){return b[1]-a[1];});
+    _downloadCsv('enterprises_submit_issues_'+_csvStamp()+'.csv', _rowsToCsv(['Enterprise','Submit Issues','Total Images','Issue Rate %'], rows));
+  }
+
+  function exportStatusCsv(){
+    var map={}, total=0;
+    allRows.forEach(function(r){ var k=(r.submitIssue||'').trim()||'(blank)'; map[k]=(map[k]||0)+r.n; total+=r.n; });
+    total=total||1;
+    var rows=Object.keys(map).map(function(k){return [k,map[k],((map[k]/total)*100).toFixed(1)];})
+      .sort(function(a,b){return b[1]-a[1];});
+    _downloadCsv('by_submit_status_'+_csvStamp()+'.csv', _rowsToCsv(['Status','Count','% of Total'], rows));
+  }
+
 </script>
 
 </body>
